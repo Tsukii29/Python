@@ -1,0 +1,447 @@
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+from pathlib import Path
+from datetime import datetime, timedelta
+
+pasta_atual = Path(__file__).parent
+dados = Path(pasta_atual / 'Entradas 2023.xlsx')
+st.set_page_config(layout="wide", 
+                   page_title="Lidiaque Vídeo Produções",
+                   #page_icon="icone.png", 
+                   initial_sidebar_state="auto")  
+ 
+
+def pagina_inicial():
+    st.title('***Lidiaque Vídeo Produções***')
+    st.divider()
+    st.subheader('Web app para consulta e monitoramento.')
+    st.write('Bem-vindo à página inicial!\n',
+             '\nAo lado esquerdo, temos uma barra de navegação chamada :red["Menu"]',
+             'onde poderemos controlar a página e função de nossa preferência.\n',
+             '\nAtualmente contamos com as seguintes páginas:\n'
+             '\n - :red[Menu]'
+             '\n - :blue[Visualização Mensal de Dados]'
+             '\n - :green[Dashbord de Análise Financeira]',
+             '\n - :orange["Calendário" ]')
+
+ 
+
+def segunda_pagina():
+    #carregando dados
+    lista_df_consolidado = []
+    df = pd.read_excel(dados, header=4, decimal=',', thousands='.', sheet_name=None)
+    for sheet, data in df.items():
+        data['Data - Início'] = pd.to_datetime(data['Data - Início']).dt.strftime('%d/%m/%Y')
+        data['Término'] = pd.to_datetime(data['Término']).dt.strftime('%d/%m/%Y')
+        data.dropna(subset=['Código'], inplace=True)
+        data.drop('Unnamed: 0', axis=1, inplace=True)
+        lista_df_consolidado.append(data)
+ 
+    tipo_de_visualizacao = st.sidebar.selectbox('Selecione o tipo de visualização:', ['Mensal', 'Consolidada'], placeholder='Selecione...', index=None)
+
+    if tipo_de_visualizacao == 'Mensal':
+        st.title('Visualização Mensal de Dados')
+        st.divider()
+
+        #Seleção do mês
+        folhas = list(df.keys())
+        folha = st.sidebar.selectbox('Selecione o :red[mês - ano] para visualização', folhas, placeholder='Selecione...', index=None)
+       
+        if folha:
+            col11, col12 = st.sidebar.columns(2)
+            filtro_coluna = col11.toggle('Filtro de colunas')
+            filtro_valor = col12.toggle('Filtro de valores')
+            col_selected = ['Código', 'Data - Início', 'Término', 'Cliente', 'Evento','Valor total Orçamento', 'Status']
+            
+            #filtro de coluna
+            if filtro_valor and filtro_coluna:
+                col = list(set(df[folha].columns))
+                col_selected = st.sidebar.multiselect('Selecione as colunas:', col, default=['Código', 'Data - Início', 'Término',
+                                                                                            'Cliente', 'Evento',
+                                                                                            'Valor total Orçamento',
+                                                                                            'Status'])
+                col_filtered = col11.selectbox('Selecione a coluna', col_selected)
+                valor_filtrado = col12.selectbox('Selecione o valor', df[folha][col_filtered].unique())
+                status_filtrar = col11.button('Filtrar')
+                status_limpar = col12.button('Limpar')
+                if status_filtrar:
+                    st.dataframe(df[folha].loc[df[folha][col_filtered] == valor_filtrado, col_selected])
+                elif status_limpar:
+                    st.dataframe(df[folha][col_selected])
+                else:
+                    st.dataframe(df[folha][col_selected])
+            elif filtro_coluna:
+                col = list(set(df[folha].columns))
+                col_selected = st.sidebar.multiselect('Selecione as colunas:', col, default=['Código', 'Data - Início', 'Término',
+                                                                                            'Cliente', 'Evento',
+                                                                                            'Valor total Orçamento',
+                                                                                            'Status'])
+                st.dataframe(df[folha][col_selected])
+            elif filtro_valor:
+                col_filtered = col11.selectbox('Selecione a coluna', col_selected)
+                valor_filtrado = col12.selectbox('Selecione o valor', df[folha][col_filtered].unique())
+                status_filtrar = col11.button('Filtrar')
+                status_limpar = col12.button('Limpar')
+                if status_filtrar:
+                    st.dataframe(df[folha].loc[df[folha][col_filtered] == valor_filtrado, col_selected])
+                elif status_limpar:
+                    st.dataframe(df[folha][col_selected])
+                else:
+                    st.dataframe(df[folha][col_selected])
+            else:
+                st.dataframe(df[folha][col_selected])
+
+            # Geral
+            if df[folha].empty:
+                #tratatando exceção de dados vazios
+                st.write('Há algo de errado com o processamento dos dados, talvez vc esteja tentando visualizar um mês ainda sem informação.')
+            else:
+                st.header('Análise Mensal - Geral', divider='green')
+
+                faturamento_mensal = df[folha]['Valor total Orçamento'].sum()
+                qnt_eventos = len(df[folha])
+                custo = df[folha]['Custo Evento (MO+MAT)'].sum()
+                custo_NF = df[folha]['Valor NF'].sum()
+                qnt_NF_emitida = len(df[folha].loc[df[folha]['Valor NF'] != 0])
+                faturamento_médio_por_evento = faturamento_mensal / qnt_eventos
+                percentual_NF_emitida = ((qnt_NF_emitida) / qnt_eventos) * 100
+                lucro = faturamento_mensal - custo - custo_NF
+                margem_de_lucro = lucro/faturamento_mensal * 100
+            
+                col21, col22, col23, col24 = st.columns(4)
+                col21.metric('Faturamento mensal total:', f'R${faturamento_mensal:.2f}')
+                col22.metric('Quantidade total de eventos:', qnt_eventos)
+                col23.metric(':red[Custo mensal (Cachês):]', f'R${custo:.2f}')
+                col24.metric(':red[Custo mensal de emissão das NFs:]', f'R${custo_NF:.2f}')
+                col21.metric('Ticket médio por evento:', f'R${faturamento_médio_por_evento:.2f}')
+                col22.metric('Lucro médio por evento:', f'R${faturamento_médio_por_evento*(margem_de_lucro/100):.2f}')
+                col23.metric(':green[Lucro mensal:]', f'R${lucro:.2f}')
+                col24.metric(':green[Margem:]', f'{margem_de_lucro:.2f}%')
+
+
+                if percentual_NF_emitida < 100:
+                    st.markdown(f"<p style='font-size: 12px;'><font color='orange'><i>ATENÇÃO!</font> - Emissão insuficiente de NFs: apenas <font color='orange'>{percentual_NF_emitida:.2f}%</font> foi emitido corretamente.</i></p>", unsafe_allow_html=True)
+
+                
+                # Por cliente mais forte
+                st.header('Análise Mensal - Clientes', divider='green')
+                faturamento_por_cliente = df[folha].groupby('Cliente')['Valor total Orçamento'].sum() #juntando todos os cliente pelo nome
+                
+                ranking_faturamento = faturamento_por_cliente.sort_values()
+                r1, r2, r3, r4 = st.columns(4)
+                i = len(ranking_faturamento)
+                for cliente, receita in ranking_faturamento.items():
+                    if i == 2:
+                        r1.markdown(f"#{i} - {cliente} :blue[R${receita:.2f}]")
+                    elif i == 3:
+                        r2.markdown(f"#{i} - {cliente} :blue[R${receita:.2f}]")
+                    elif i == 4:
+                        r3.markdown(f"#{i} - {cliente} :blue[R${receita:.2f}]")
+                    elif i == 5:
+                        r4.markdown(f"#{i} - {cliente} :blue[R${receita:.2f}]")
+                    i -= 1       
+
+                col31, col32, col33 = st.columns(3)
+                
+                principal_cliente = faturamento_por_cliente.idxmax() #pegando o cliente com maior fatura
+                qnt_eventos_principal_cliente = df[folha].loc[df[folha]['Cliente'] == principal_cliente, 'Cliente'].value_counts()
+                faturamento_principal = faturamento_por_cliente.max()
+                custo_principal = df[folha].loc[df[folha]['Cliente'] == principal_cliente, 'Custo Evento (MO+MAT)'].sum()
+                faturamento_médio_principal_por_evento = faturamento_principal / qnt_eventos_principal_cliente
+                percentual_principal_cliente = (faturamento_principal / df[folha]['Valor total Orçamento'].sum()) * 100
+                faturamento_médio_principal_por_evento = faturamento_médio_principal_por_evento.iloc[0]
+                lucro_principal = faturamento_principal - custo_principal
+                margem_principal = (lucro_principal / faturamento_principal) * 100
+
+                col31.metric('Principal cliente desse mês em faturamento:', principal_cliente)
+                col32.metric(f'Quantidade de eventos prestados para {principal_cliente}:', qnt_eventos_principal_cliente)
+                col33.metric(f'Percentual da receita com relação a receita total:', f'{percentual_principal_cliente:.2f}%') 
+                col31.metric(f'Receita gerada por {principal_cliente}:', f'R${faturamento_principal:.2f}') 
+                col32.metric(f'Custo gerado por {principal_cliente}', f'R${custo_principal:.2f}')
+                col33.metric(f'Lucro gerado por {principal_cliente}', f'R${lucro_principal:.2f}')
+                col31.metric(f'Ticket médio por evento', f'R${faturamento_médio_principal_por_evento:.2f}')
+                col32.metric(f'Margem',f'{margem_principal:.2f}%')  
+                col33.metric('Média de lucro por evento', f'R${faturamento_médio_principal_por_evento*(margem_principal/100):.2f}')
+
+
+
+                st.divider()
+
+                #seleção de cliente
+                col61, col62 = st.columns(2)
+                visualizar = col61.toggle('Visualizar cliente específico')
+                
+                if visualizar: 
+                    #selecionando o cliente
+                    comparar = col62.toggle('Comparar com outro cliente')
+                    clientes = df[folha]['Cliente'].unique()
+                    col41, col42 = st.columns(2)
+                    cliente_selecionado = col41.selectbox('Selecione o :green[Cliente] que vc quer:', clientes, index=None, placeholder='Selecione o cliente...')
+                    
+
+                    col51, col52 = st.columns(2)
+                    if cliente_selecionado:
+                        #pegando os dados que eu quero comparar
+                        faturamento_cliente_selecionado = df[folha].loc[df[folha]['Cliente'] == cliente_selecionado, 'Valor total Orçamento'].sum()
+                        percentual_cliente_selecionado = (faturamento_cliente_selecionado / df[folha]['Valor total Orçamento'].sum()) * 100
+                        qnt_eventos_cliente_selecionado = int(df[folha].loc[df[folha]['Cliente'] == cliente_selecionado, 'Cliente'].value_counts())
+                        ticket_médio = faturamento_cliente_selecionado/qnt_eventos_cliente_selecionado
+                        
+                        col51.metric(f'Receita :blue[{cliente_selecionado}]:', f'R${faturamento_cliente_selecionado:.2f}')
+                        col51.metric(f'Percentual da receita de :blue[{cliente_selecionado}] x Receita total:', f'{percentual_cliente_selecionado:.2f}%')
+                        col51.metric(f'Quantidade de eventos :blue[{cliente_selecionado}]', qnt_eventos_cliente_selecionado)
+                        col51.metric(f'Ticket médio :blue[{cliente_selecionado}]', f'R${ticket_médio:.2f}')
+                    
+                    if comparar:
+                        #selecionando o cliente
+                        clientes2 = [_ for _ in df[folha]['Cliente'].unique() if _ != cliente_selecionado]
+                        cliente_selecionado2 = col42.selectbox('Selecione com qual :green[Cliente] vc quer comparar:', clientes2, index=None, placeholder='Selecione o cliente...')
+                        
+                        if cliente_selecionado2:
+                            #pegando os dados que eu quero comparar
+                            faturamento_cliente_selecionado2 = df[folha].loc[df[folha]['Cliente'] == cliente_selecionado2, 'Valor total Orçamento'].sum()
+                            percentual_cliente_selecionado2 = (faturamento_cliente_selecionado2 / df[folha]['Valor total Orçamento'].sum()) * 100
+                            qnt_eventos_cliente_selecionado2 = int(df[folha].loc[df[folha]['Cliente'] == cliente_selecionado2, 'Cliente'].value_counts())
+                            ticket_médio2 = faturamento_cliente_selecionado2/qnt_eventos_cliente_selecionado2
+                        
+                            col52.metric(f'Receita :violet[{cliente_selecionado2}]:', f'R${faturamento_cliente_selecionado2:.2f}')
+                            col52.metric(f'Percentual da receita de :violet[{cliente_selecionado2}] x Receita Total:', f'{percentual_cliente_selecionado2:.2f}%')
+                            col52.metric(f'Quantidade de eventos :violet[{cliente_selecionado2}]', qnt_eventos_cliente_selecionado2)
+                            col52.metric(f'Ticket médio :violet[{cliente_selecionado2}]', f'R${ticket_médio2:.2f}')
+
+                        if cliente_selecionado and cliente_selecionado2:
+                            #comparando os dados
+                            st.divider()
+                            st.write(f'Comparação entre :blue[{cliente_selecionado}] e :violet[{cliente_selecionado2}]')
+                            c1, c2, c3, c4 = st.columns(4)
+                            comparar_faturamento = int(abs(faturamento_cliente_selecionado - faturamento_cliente_selecionado2))
+                            comparar_percentual = float(abs(percentual_cliente_selecionado - percentual_cliente_selecionado2))
+                            comparar_qnt_eventos = int(abs(qnt_eventos_cliente_selecionado - qnt_eventos_cliente_selecionado2))
+                            comparar_ticket = int(abs(ticket_médio - ticket_médio2))
+
+                            if faturamento_cliente_selecionado > faturamento_cliente_selecionado2:
+                                c1.metric('Diferença de faturamento:', f'R${comparar_faturamento:.2f}', delta=f'{cliente_selecionado}', delta_color='off')
+                            elif faturamento_cliente_selecionado < faturamento_cliente_selecionado2:
+                                c1.metric('Diferença de faturamento:', f'R${comparar_faturamento:.2f}', delta=f'{cliente_selecionado2}', delta_color='off')
+                            else:
+                                c1.metric('Diferença de faturamento:', f'R${comparar_faturamento:.2f}')
+                            
+                            if percentual_cliente_selecionado > percentual_cliente_selecionado2:
+                                c2.metric('Diferença de percentual: ', f'{comparar_percentual:.2f}%', delta=f'{cliente_selecionado}', delta_color='off')
+                            elif percentual_cliente_selecionado < percentual_cliente_selecionado2:
+                                c2.metric('Diferença de percentual: ', f'{comparar_percentual:.2f}%', delta=f'{cliente_selecionado2}', delta_color='off')
+                            else:
+                                c2.metric('Diferença de percentual: ', f'{comparar_percentual:.2f}%')
+
+                            if qnt_eventos_cliente_selecionado > qnt_eventos_cliente_selecionado2:
+                                c3.metric('Diferença na quantidade de eventos:', comparar_qnt_eventos, delta=f'{cliente_selecionado}', delta_color='off')
+                            elif qnt_eventos_cliente_selecionado < qnt_eventos_cliente_selecionado2:
+                                c3.metric('Diferença na quantidade de eventos:', comparar_qnt_eventos, delta=f'{cliente_selecionado2}', delta_color='off')
+                            else:
+                                c3.metric('Diferença na quantidade de eventos:', comparar_qnt_eventos)
+
+                            if ticket_médio > ticket_médio2:
+                                c4.metric('Diferença no ticket médio:', f'R${comparar_ticket:.2f}', delta=f'{cliente_selecionado}', delta_color='off')
+                            elif ticket_médio < ticket_médio2:
+                                c4.metric('Diferença no ticket médio:', f'R${comparar_ticket:.2f}', delta=f'{cliente_selecionado2}', delta_color='off')
+                            else:
+                                c4.metric('Diferença no ticket médio:', f'R${comparar_ticket:.2f}')
+
+    elif tipo_de_visualizacao == 'Consolidada':
+
+        df_consolidado = pd.concat(lista_df_consolidado, ignore_index=True)
+        st.title('Consolidada') 
+
+        col = list(set(df_consolidado.columns))
+
+        col11, col12 = st.sidebar.columns(2)
+        filtro_coluna = col11.toggle('Filtro de colunas')
+        filtro_valor = col12.toggle('Filtro de valores')
+        col_selected = ['Código', 'Data - Início', 'Término', 'Cliente', 'Evento','Valor total Orçamento', 'Status']
+        
+        #filtro de coluna
+        if filtro_valor and filtro_coluna:
+            col = list(set(df_consolidado.columns))
+            col_selected = st.sidebar.multiselect('Selecione as colunas:', col)
+            col_filtered = col11.selectbox('Selecione a coluna', col_selected)
+            valor_filtrado = col12.selectbox('Selecione o valor', df_consolidado[col_filtered].unique())
+            status_filtrar = col11.button('Filtrar')
+            status_limpar = col12.button('Limpar')
+            if status_filtrar:
+                st.dataframe(df_consolidado.loc[df_consolidado[col_filtered] == valor_filtrado, col_selected])
+            elif status_limpar:
+                st.dataframe(df_consolidado[col_selected])
+            else:
+                st.dataframe(df_consolidado[col_selected])
+        elif filtro_coluna:
+            col = list(set(df_consolidado.columns))
+            col_selected = st.sidebar.multiselect('Selecione as colunas:', col)
+            st.dataframe(df_consolidado[col_selected])
+        elif filtro_valor:
+            col_filtered = col11.selectbox('Selecione a coluna', col_selected)
+            valor_filtrado = col12.selectbox('Selecione o valor', df_consolidado[col_filtered].unique())
+            status_filtrar = col11.button('Filtrar')
+            status_limpar = col12.button('Limpar')
+            if status_filtrar:
+                st.dataframe(df_consolidado.loc[df_consolidado[col_filtered] == valor_filtrado, col_selected])
+            elif status_limpar:
+                st.dataframe(df_consolidado[col_selected])
+            else:
+                st.dataframe(df_consolidado[col_selected])
+        else:
+            st.dataframe(df_consolidado[col_selected])
+
+        st.divider()
+
+        df_consolidado ['Cliente_lower']= df_consolidado['Cliente'].str.upper() 
+        fat_total_por_cliente = df_consolidado.groupby(['Cliente_lower'])['Valor total Orçamento'].sum()
+        top_10_clientes = fat_total_por_cliente.nlargest(10).reset_index()
+
+        fig_top10 = px.bar(top_10_clientes, 
+                    x='Valor total Orçamento', 
+                    y='Cliente_lower',
+                    orientation='h',
+                    text='Valor total Orçamento',
+                    title='Top 10 Clientes por Valor Total Gerado',
+                    labels={'Valor total Orçamento': 'Valor Total Orçamento', 'Cliente_lower': 'Cliente'})
+
+        # Adicionando numeração às barras
+        fig_top10.update_layout(yaxis={'categoryorder': 'total ascending'}, uniformtext_minsize=8, uniformtext_mode='hide')
+        st.plotly_chart(fig_top10)
+
+        #Faturamento por mes
+        faturamento_total = {}
+        for periodo, tabela in df.items():
+            fat_tabela = tabela['Valor total Orçamento'].sum()
+            fat_tabela = round(fat_tabela, 2)
+            faturamento_total[periodo] = fat_tabela
+        
+        #media
+        valores_faturamento = list(faturamento_total.values())
+        media_faturamento_total = round(sum(valores_faturamento) / len(valores_faturamento), 2)
+
+        a_receber = df_consolidado.loc[df_consolidado['Status'] == 'A Pagar']
+        a_receber_ordenado = a_receber.sort_values(by='Data Pgto 1ª Parcela')
+
+        #pagamentos a receber
+        lista_pagamentos = []
+        for indice, linha in a_receber_ordenado.iterrows():
+            informacoes_pagamento = f"{linha['Data Pgto 1ª Parcela'].strftime('%d/%m/%Y')} | {linha['Valor total Orçamento']} | {linha['Evento']} | {linha['Cliente']}"
+            lista_pagamentos.append(informacoes_pagamento)
+        
+        #agrupando por cliente
+        pagamentos_df = [x.split('|') for x in lista_pagamentos]  
+        pagamentos_df = pd.DataFrame(pagamentos_df, columns=['Data', 'Valor', 'Evento', 'Cliente']) 
+        pagamentos_df['Valor'] = pagamentos_df['Valor'].astype(float)
+        pagamentos_df_por_cliente = pagamentos_df.groupby(['Cliente'])['Valor'].sum() 
+        st.write(pagamentos_df_por_cliente)
+        
+        #organizando aos dias 15 e 30/31
+        data_atual = datetime.now()
+        mes_atual = data_atual.month
+        ano_atual = data_atual.year
+
+        intervalos_datas = []
+        for i in range(4):
+            mes = mes_atual + i
+            ano = ano_atual
+            if mes > 12:
+                mes -= 12
+                ano += 1
+            inicio_intervalo1 = f'{ano}-{mes:02d}-01'
+            fim_intervalo1 = f'{ano}-{mes:02d}-15'
+            inicio_intervalo2 = f'{ano}-{mes:02d}-16'
+            fim_intervalo2 = pd.to_datetime(inicio_intervalo2) + pd.offsets.MonthEnd()
+            intervalos_datas.append((inicio_intervalo1, fim_intervalo1))
+            intervalos_datas.append((inicio_intervalo2, fim_intervalo2))
+
+        resultados = {}
+        for inicio, fim in intervalos_datas:
+            inicio_timestamp = pd.to_datetime(inicio)
+            fim_timestamp = pd.to_datetime(fim)
+            dados_intervalo = a_receber_ordenado[(a_receber_ordenado['Data Pgto 1ª Parcela'] >= inicio_timestamp) & (a_receber_ordenado['Data Pgto 1ª Parcela'] <= fim_timestamp)]
+            valor_total = dados_intervalo['Valor total Orçamento'].sum()
+            resultados[f'{inicio} a {fim}'] = valor_total
+
+        # Criando DataFrame a partir do dicionário resultados
+        df_resultados = pd.DataFrame(resultados.items(), columns=['Intervalo de datas', 'Valor total'])
+
+        # Formatando os rótulos dos intervalos de datas
+        df_resultados['Intervalo de datas'] = df_resultados['Intervalo de datas'].apply(lambda x: f"{x.split(' ')[0][8:10]}/{x.split(' ')[0][5:7]}/{x.split(' ')[0][:4]} - {x.split(' ')[2][8:10]}/{x.split(' ')[2][5:7]}/{x.split(' ')[2][:4]}")
+
+        # Visualizando DataFrame
+        st.write(df_resultados)
+
+        fig = px.bar(df_resultados, x='Intervalo de datas', y='Valor total', text='Valor total', title='Valor total por intervalo de datas')
+        fig.update_traces(texttemplate='%{text:.2f}', textposition='inside')
+        st.plotly_chart(fig)
+                    
+   
+def terceira_pagina():
+
+    caminho = Path(pasta_atual / 'Custos')
+    nome_file_custo = [arquivo.stem for arquivo in caminho.glob('*')]
+
+    # Exibindo uma caixa de seleção para que o usuário escolha um arquivo de custo
+    file_custo = st.sidebar.selectbox('Selecione o arquivo de custo desejado: ', nome_file_custo, placeholder='Selecione...', index=None)
+    if file_custo: 
+        file_custo_caminho = None
+        for arquivo in caminho.glob('*'):
+            if file_custo in arquivo.stem:
+                file_custo_caminho = arquivo
+                break
+    
+        if file_custo_caminho is not None:
+            df_custo = pd.read_excel(file_custo_caminho, decimal=',', thousands='.', sheet_name=None)
+
+            for sheet2, data2 in df_custo.items():
+                try:
+                    data2.dropna(subset=['Colaborador'], inplace=True)
+                except: 
+                    pass
+
+            folha_custo = list(df_custo.keys())
+            st.write(folha_custo)
+
+            st.header('Pagamento de Colaboradores')
+            st.write(df_custo)
+
+
+
+
+
+    else:
+        pass
+
+
+
+    
+
+def quarta_pagina():
+    st.title('Quarta Página')
+    st.write('Esta é a quarta página!')
+
+
+def main():
+    st.sidebar.title('Menu')
+    pagina_selecionada = st.sidebar.selectbox('Selecione uma página', ['Página Inicial', 'Visualização de Dados',
+                                                                        'Dashbord de Análise Financeira', 'Calendário'])
+
+    if pagina_selecionada == 'Página Inicial':
+        pagina_inicial()
+    elif pagina_selecionada == 'Visualização de Dados':
+        segunda_pagina()
+    elif pagina_selecionada == 'Dashbord de Análise Financeira':
+        terceira_pagina()
+    elif pagina_selecionada == 'Calendário':
+        quarta_pagina()
+
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
